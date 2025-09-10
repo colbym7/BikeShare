@@ -5,6 +5,8 @@ library(patchwork)
 
 # Read in data and check variable types #
 train <- vroom('C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\train.csv')
+test <- vroom('C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\test.csv')
+
 glimpse(train)
 
 # Change variable types #
@@ -19,7 +21,14 @@ train <- train |>
   registered = as.integer(registered),
   count = as.integer(count)
 )
-
+test <- test %>%
+  mutate(
+    season = as.factor(season),
+    holiday = as.factor(holiday),
+    workingday = as.factor(workingday),
+    weather = as.factor(weather),
+    humidity = as.integer(humidity),
+)
 
 # EDA #
 GGally::ggpairs(train)
@@ -37,11 +46,11 @@ plot3 <- ggplot(data = train, aes(x = temp, y = count, color = weather)) +
   geom_point() +
   scale_color_manual(values = c("red", "blue", "green", "black")) +
   geom_smooth(method = lm, formula = y ~ x, se = FALSE) +
-  labs(title = "Scatterplot of Temperature and Bike Rentals, Stratified by Weather")
+  labs(title = "Temperature vs Bike Rentals")
 plot4 <- ggplot(data = train, aes(x = temp, y = count, color = workingday)) +
   geom_point() +
   scale_color_manual(values = c('red', 'blue')) +
-  labs(title = "Scatterplot of Temperature and Bike Rentals, Stratified by Workingday")
+  labs(title = "Temperature vs Bike Rentals")
 (plot1 + plot2) / (plot3 + plot4)
 
 # No missing data, pretty even amount of observations for each season #
@@ -50,3 +59,28 @@ plot4 <- ggplot(data = train, aes(x = temp, y = count, color = workingday)) +
 # atemp (feels like temperature) generally appears to be around temp +4
 # Humidity Generally pretty high. Q1: 47 Q3: 77 
 # Frequent periodic gaps of no bike rentals across time
+
+
+
+# Linear Regression
+small_train <- train %>% 
+  select(-casual, -registered)
+my_linear_model <- linear_reg() %>% #Type of model
+  set_engine("lm") %>% # Engine = What R function to use
+  set_mode("regression") %>% # Regression just means quantitative response6
+  fit(formula=count~ . , data=small_train)
+bike_predictions <- predict(my_linear_model,
+                            new_data=test) # Use fit to predict
+bike_predictions 
+
+
+# Prepare predictions for Kaggle Submission
+kaggle_submission <- bike_predictions %>%
+bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+## Write out the file
+vroom_write(x=kaggle_submission, file="./LinearPreds.csv", delim=",")
