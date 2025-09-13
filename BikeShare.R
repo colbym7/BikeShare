@@ -62,25 +62,69 @@ plot4 <- ggplot(data = train, aes(x = temp, y = count, color = workingday)) +
 
 
 
-# Linear Regression
-small_train <- train %>% 
-  select(-casual, -registered)
+# Data Cleaning #
+train <- train %>%
+  select(., -casual, -registered) %>%
+  mutate(count = log(count))
+
+# Basic Linear Regression
+
 my_linear_model <- linear_reg() %>% #Type of model
   set_engine("lm") %>% # Engine = What R function to use
   set_mode("regression") %>% # Regression just means quantitative response6
-  fit(formula=count~ . , data=small_train)
+  fit(formula=count~ . , data=train)
 bike_predictions <- predict(my_linear_model,
                             new_data=test) # Use fit to predict
-bike_predictions 
-
+bike_predictions <- exp(bike_predictions)
 
 # Prepare predictions for Kaggle Submission
 kaggle_submission <- bike_predictions %>%
-bind_cols(., test) %>% #Bind predictions with test data
+  bind_cols(., test) %>% #Bind predictions with test data
   select(datetime, .pred) %>% #Just keep datetime and prediction variables
   rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
   mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
   mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
 
 ## Write out the file
-vroom_write(x=kaggle_submission, file="./LinearPreds.csv", delim=",")
+vroom_write(x=kaggle_submission, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\LinearPreds.csv", delim=",")
+
+
+
+### Feature Engineering ###
+
+my_recipe <- recipe(count ~ ., data = train) %>%
+  step_mutate(weather = ifelse(weather == 4, 3, weather)) %>%
+  step_time(datetime, features = 'hour') %>%
+  step_date(datetime, features="dow") %>%
+  step_poly(matches("hour"), degree = 4) %>%
+  step_mutate(season = as.factor(season)) %>%
+  step_dummy(season)
+prepped_recipe <- prep(my_recipe)
+baked_data <- bake(prepped_recipe, new_data = NULL)
+
+print(baked_data, n = 5)
+
+lin_model <- linear_reg() %>%
+  set_engine("lm") %>%
+  set_mode("regression")
+
+## Combine into a Workflow and fit
+bike_workflow <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(lin_model) %>%
+  fit(data=train)
+
+## Run all the steps on test data
+lin_preds <- predict(bike_workflow, new_data = test)
+lin_preds <- exp(lin_preds)
+
+kaggle_submission2 <- lin_preds %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+
+## Write out the file
+vroom_write(x=kaggle_submission2, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\LinearPreds2.csv", delim=",")
