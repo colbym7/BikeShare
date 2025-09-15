@@ -128,3 +128,80 @@ kaggle_submission2 <- lin_preds %>%
 
 ## Write out the file
 vroom_write(x=kaggle_submission2, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\LinearPreds2.csv", delim=",")
+
+
+
+### Penalized Regression ###
+my_recipe_preg <- recipe(count ~ ., data = train) %>%
+  step_mutate(weather = ifelse(weather == 4, 3, weather)) %>%
+  step_time(datetime, features = 'hour') %>%
+  step_date(datetime, features="dow") %>%
+  step_poly(matches("hour"), degree = 4) %>%
+  step_mutate(season = as.factor(season)) %>%
+  step_dummy(season) %>%
+  step_rm(datetime) %>%
+  step_dummy(all_nominal_predictors()) %>% #make dummy variables
+  step_normalize(all_numeric_predictors()) # Make mean 0, sd=1
+
+
+ ## Experiment with 5 different penalty, and mixture combinations
+preg_model <- linear_reg(penalty= .01,mixture = 1) %>%
+  set_engine("glmnet")
+## Combine into a Workflow and fit
+preg_wf <- workflow() %>%
+  add_recipe(my_recipe_preg) %>%
+  add_model(preg_model) %>%
+  fit(data=train)
+
+## 5 sets of predictions for tuning parameter specifications
+preg_preds1 <- predict(preg_wf, new_data = test)
+preg_preds1 <- exp(preg_preds1) # Penalty 2, mixture .5
+preg_preds2 <- predict(preg_wf, new_data = test)
+preg_preds2 <- exp(preg_preds2) # Penalty .1, mixture .5
+preg_preds3 <- predict(preg_wf, new_data = test)
+preg_preds3 <- exp(preg_preds3) # Penalty .01, mixture .5
+preg_preds4 <- predict(preg_wf, new_data = test)
+preg_preds4 <- exp(preg_preds4) # Penalty .01, mixture 0
+preg_preds5 <- predict(preg_wf, new_data = test)
+preg_preds5 <- exp(preg_preds5) # Penalty .01, mixture 1
+
+# Prepare 5 sets of predictions for upload to kaggle
+kaggle_submission3 <- preg_preds1 %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+vroom_write(x=kaggle_submission3, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\Preg1.csv", delim=",")
+
+kaggle_submission4 <- preg_preds2 %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+vroom_write(x=kaggle_submission4, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\Preg2.csv", delim=",")
+
+kaggle_submission5 <- preg_preds3 %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+vroom_write(x=kaggle_submission5, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\Preg3.csv", delim=",")
+
+kaggle_submission6 <- preg_preds4 %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+vroom_write(x=kaggle_submission6, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\Preg4.csv", delim=",")
+
+kaggle_submission7 <- preg_preds5 %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+vroom_write(x=kaggle_submission7, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\Preg5.csv", delim=",")
