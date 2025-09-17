@@ -205,3 +205,49 @@ kaggle_submission7 <- preg_preds5 %>%
   mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
   mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
 vroom_write(x=kaggle_submission7, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\Preg5.csv", delim=",")
+
+
+
+### Tuning ###
+preg_model <- linear_reg(penalty = tune(),
+                         mixture = tune())%>%
+  set_engine('glmnet')
+
+preg_wf <- workflow() %>%
+  add_recipe(my_recipe_preg) %>%
+  add_model(preg_model)
+
+grid_tuning_params <- grid_regular(penalty(),
+                                   mixture(),
+                                   levels = 12)
+folds <- vfold_cv(train, v = 5)
+
+CV_results <- preg_wf %>%
+  tune_grid(resamples=folds,
+            grid = grid_tuning_params,
+            metrics = metric_set(rmse))
+
+collect_metrics(CV_results) %>%
+  filter(.metric=='rmse') %>%
+  ggplot(data=., aes(x=penalty, y=mean, color=factor(mixture))) +
+  geom_line()
+
+bestTune <- CV_results %>%
+  select_best(metric='rmse')
+
+final_wf <- preg_wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=train)
+
+tuned_preds <- final_wf %>%
+  predict(new_data = test)
+tuned_preds <- exp(tuned_preds)
+
+kaggle_submission8 <- tuned_preds %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+vroom_write(x=kaggle_submission8, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\tunedpreds.csv", delim=",")
