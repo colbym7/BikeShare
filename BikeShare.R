@@ -2,6 +2,7 @@ library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(patchwork)
+library(rpart)
 
 # Read in data and check variable types #
 train <- vroom('C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\train.csv')
@@ -251,3 +252,90 @@ kaggle_submission8 <- tuned_preds %>%
   mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
 
 vroom_write(x=kaggle_submission8, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\tunedpreds.csv", delim=",")
+
+
+  ### Regression Trees ###
+tree_mod <- decision_tree(tree_depth = tune(),
+                          cost_complexity = tune(),
+                          min_n = tune()) %>%
+  set_engine('rpart') %>%
+  set_mode('regression')
+
+tree_wf <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(tree_mod)
+
+grid_tree_tuning_params <- grid_regular(tree_depth(),
+                                   cost_complexity(),
+                                   min_n(),
+                                   levels = 10)
+folds <- vfold_cv(train, v = 5)
+
+CV_results_tree <- tree_wf %>%
+  tune_grid(resamples=folds,
+            grid = grid_tree_tuning_params,
+            metrics = metric_set(rmse))
+
+
+bestTune <- CV_results_tree %>%
+  select_best(metric='rmse')
+
+finaltree_wf <- tree_wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=train)
+
+tree_preds <- finaltree_wf %>%
+  predict(new_data = test)
+tree_preds <- exp(tree_preds)
+
+kaggle_submission9 <- tree_preds %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+vroom_write(x=kaggle_submission9, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\treepreds.csv", delim=",")
+
+
+### Random Forests ###
+rf_mod <- rand_forest(mtry = tune(),
+                      min_n=tune(),
+                      trees = 1000) %>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+
+forest_wf <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(rf_mod)
+
+grid_forest_tuning_params <- grid_regular(mtry(range=c(1,10)),
+                                        min_n(),
+                                        levels = 10)
+folds <- vfold_cv(train, v = 5)
+
+CV_results_forest <- forest_wf %>%
+  tune_grid(resamples=folds,
+            grid = grid_forest_tuning_params,
+            metrics = metric_set(rmse))
+
+
+bestTune_forest <- CV_results_forest %>%
+  select_best(metric='rmse')
+
+finalforest_wf <- forest_wf %>%
+  finalize_workflow(bestTune_forest) %>%
+  fit(data=train)
+
+forest_preds <- finalforest_wf %>%
+  predict(new_data = test)
+forest_preds <- exp(forest_preds)
+
+kaggle_submission10 <- forest_preds %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+vroom_write(x=kaggle_submission10, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\forestpreds.csv", delim=",")
