@@ -3,6 +3,10 @@ library(tidymodels)
 library(vroom)
 library(patchwork)
 library(rpart)
+library(bonsai)
+library(lightgbm)
+library(dbarts)
+
 
 # Read in data and check variable types #
 train <- vroom('C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\train.csv')
@@ -339,3 +343,44 @@ kaggle_submission10 <- forest_preds %>%
   mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
 
 vroom_write(x=kaggle_submission10, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\forestpreds.csv", delim=",")
+
+
+
+ ### Boosting ###
+bart_model <- bart(trees=tune()) %>%
+  set_engine('dbarts') %>%
+  set_mode('regression')
+
+bart_wf <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(bart_model)
+
+grid_bart_tuning_params <- grid_regular(trees(),
+                                          levels = 5)
+folds <- vfold_cv(train, v = 5)
+
+CV_results_bart <- bart_wf %>%
+  tune_grid(resamples=folds,
+            grid = grid_bart_tuning_params,
+            metrics = metric_set(rmse))
+
+
+bestTune_bart <- CV_results_bart %>%
+  select_best(metric='rmse')
+
+finalbart_wf <- bart_wf %>%
+  finalize_workflow(bestTune_bart) %>%
+  fit(data=train)
+
+bart_preds <- finalbart_wf %>%
+  predict(new_data = test)
+bart_preds <- exp(bart_preds)
+
+kaggle_submission11 <- bart_preds %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+vroom_write(x=kaggle_submission11, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\bartpreds.csv", delim=",")
