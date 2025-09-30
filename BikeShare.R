@@ -6,7 +6,7 @@ library(rpart)
 library(bonsai)
 library(lightgbm)
 library(dbarts)
-
+library(agua)
 
 # Read in data and check variable types #
 train <- vroom('C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\train.csv')
@@ -106,6 +106,9 @@ my_recipe <- recipe(count ~ ., data = train) %>%
   step_dummy(season)
 prepped_recipe <- prep(my_recipe)
 baked_data <- bake(prepped_recipe, new_data = NULL)
+
+write.csv(baked_data, file = 'C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\datarobot.csv')
+write.csv(test, file = 'C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\datarobot_test.csv')
 
 print(baked_data, n = 5)
 
@@ -365,7 +368,7 @@ CV_results_bart <- bart_wf %>%
             metrics = metric_set(rmse))
 
 
-bestTune_bart <- CV_results_bart %>%
+ bestTune_bart <- CV_results_bart %>%
   select_best(metric='rmse')
 
 finalbart_wf <- bart_wf %>%
@@ -384,3 +387,47 @@ kaggle_submission11 <- bart_preds %>%
   mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
 
 vroom_write(x=kaggle_submission11, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\bartpreds.csv", delim=",")
+
+
+
+### Stacking with H2O.AI
+
+h2o::h2o.init()
+
+auto_model <- auto_ml() %>%
+  set_engine('h2o', max_runtime_secs = 600) %>%
+  set_mode('regression')
+
+automl_wf <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(auto_model) %>%
+  fit(data=train)
+
+auto_preds <- automl_wf %>%
+  predict(new_data = test)
+auto_preds <- exp(auto_preds)
+
+kaggle_submission12 <- auto_preds %>%
+  bind_cols(., test) %>% #Bind predictions with test data
+  select(datetime, .pred) %>% #Just keep datetime and prediction variables
+  rename(count=.pred) %>% #rename pred to count (for submission to Kaggle)
+  mutate(count=pmax(0, count)) %>% #pointwise max of (0, prediction)
+  mutate(datetime=as.character(format(datetime))) #needed for right format to Kaggle
+
+vroom_write(x=kaggle_submission12, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\autopreds.csv", delim=",")
+
+
+
+# Data Robot #
+write.csv(baked_data, file = 'C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\datarobot.csv')
+robot_test  <- bake(prepped_recipe, new_data = test)
+write.csv(robot_test, file = 'C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\datarobot_test.csv')
+
+robot_preds <- vroom('C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\datarobot_result.csv')
+robot_preds$count_PREDICTION <- exp(robot_preds$count_PREDICTION)
+
+kaggle_submission13 <- test %>%
+  select(datetime) %>%
+  mutate(datetime = as.character(format(datetime))) %>%   # Kaggle wants char, not POSIXct
+  bind_cols(count = robot_preds$count_PREDICTION)
+vroom_write(x=kaggle_submission13, file="C:\\Users\\cjmsp\\Desktop\\Stat348\\BikeShare\\robopreds.csv", delim=",")
